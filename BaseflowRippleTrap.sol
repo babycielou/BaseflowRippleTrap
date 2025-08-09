@@ -1,32 +1,38 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
-contract BaseflowRippleTrap {
-    uint256 private lastBaseFee;
+interface ITrap {
+    function collect() external view returns (bytes memory);
+    function shouldRespond(bytes[] calldata data) external pure returns (bool, bytes memory);
+}
 
-    constructor() {
-        lastBaseFee = block.basefee;
+contract BaseflowRippleTrap is ITrap {
+    uint256 private constant THRESHOLD_PERCENT = 1; // Порог срабатывания 1%
+
+    function collect() external view override returns (bytes memory) {
+        return abi.encode(block.basefee);
     }
 
-    function collect() external view returns (bytes memory) {
-        return abi.encode(block.basefee, block.number);
-    }
-
-    function shouldRespond(bytes calldata) external view returns (bool) {
-        uint256 currentFee = block.basefee;
-
-        // Avoid division by zero
-        if (lastBaseFee == 0) {
-            return false;
+    function shouldRespond(bytes[] calldata data) external pure override returns (bool, bytes memory) {
+        if (data.length < 2) {
+            return (false, abi.encode("Not enough data"));
         }
 
-        // Calculate percentage difference (scaled by 1000 for precision)
-        uint256 diff = currentFee > lastBaseFee
-            ? currentFee - lastBaseFee
-            : lastBaseFee - currentFee;
-        uint256 percentDiff = (diff * 1000) / lastBaseFee;
+        uint256 currentFee = abi.decode(data[0], (uint256));
+        uint256 previousFee = abi.decode(data[1], (uint256));
 
-        // Trigger if change > 1% (percentDiff > 10 with scale of 1000)
-        return percentDiff > 10;
+        if (previousFee == 0) {
+            return (false, abi.encode("Invalid previous fee"));
+        }
+
+        uint256 diffPercent = currentFee > previousFee
+            ? ((currentFee - previousFee) * 100) / previousFee
+            : ((previousFee - currentFee) * 100) / previousFee;
+
+        if (diffPercent >= THRESHOLD_PERCENT) {
+            return (true, abi.encode("Basefee ripple detected"));
+        } else {
+            return (false, abi.encode("No significant ripple"));
+        }
     }
 }
